@@ -3,19 +3,18 @@ import json
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import DeleteView, UpdateView, CreateView, DetailView, ListView
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.generics import RetrieveAPIView
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.views.generic import UpdateView, CreateView, ListView
+from rest_framework.generics import RetrieveAPIView, UpdateAPIView, DestroyAPIView
+from rest_framework.permissions import IsAuthenticated
 
 from categories.models import Category
 from hw28.settings import TOTAL_ON_PAGE
 from users.models import User
 from .models import Ad
-from .serializers import AdSerializer
+from .permissions import IsOwner, IsAdminOrModerator
+from .serializers import AdRetrieveSerializer, AdUpdateSerializer, AdDestroySerializer
 
 
 class AdListView(ListView):
@@ -67,7 +66,7 @@ class AdListView(ListView):
 
 class AdDetailView(RetrieveAPIView):
     queryset = Ad.objects.all()
-    serializer_class = AdSerializer
+    serializer_class = AdRetrieveSerializer
     permission_classes = [IsAuthenticated, ]
 
 
@@ -99,41 +98,10 @@ class AdCreateView(CreateView):
         })
 
 
-# Почему проверка автора объявления не сделана в декораторе:
-# https://stackoverflow.com/questions/35520592/django-custom-permissions-for-function-based-views
-# https://github.com/encode/django-rest-framework/issues/1697
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
-@method_decorator(csrf_exempt, name='dispatch')
-def update_ad(request, pk):
-    json_data = json.loads(request.body)
-    ad = get_object_or_404(Ad, pk=pk)
-
-    if request.user.is_staff or (request.user == ad.author):  # тут проверяется принадлежность к стафу или автор
-        if json_data['name']:
-            ad.name = json_data['name']
-        if json_data['price']:
-            ad.price = json_data['price']
-        if json_data['desc']:
-            ad.desc = json_data['desc']
-        if json_data['category']:
-            ad.category = Category.objects.get(pk=json_data['category'])
-
-        ad.save()
-
-        return JsonResponse({
-            'id': ad.id,
-            'name': ad.name,
-            'author_id': ad.author.id,
-            'author': ad.author.username,
-            'price': ad.price,
-            'desc': ad.desc,
-            'is_published': ad.is_published,
-            'category_id': ad.category.id,
-            'image': ad.image.name
-        })
-    else:
-        return JsonResponse({"response": "You don't have permissions"})
+class AdUpdateView(UpdateAPIView):
+    queryset = Ad.objects.all()
+    serializer_class = AdUpdateSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrModerator | IsOwner, ]
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -161,17 +129,7 @@ class AdImageView(UpdateView):
         })
 
 
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
-@method_decorator(csrf_exempt, name='dispatch')
-def delete_ad(request, pk):
-    ad = get_object_or_404(Ad, pk=pk)
-
-    if request.user.is_staff or (request.user == ad.author):
-        ad.delete()
-
-        return JsonResponse({
-            'status': 'ok'
-        })
-    else:
-        return JsonResponse({"response": "You don't have permissions"})
+class AdDestroyView(DestroyAPIView):
+    queryset = Ad.objects.all()
+    serializer_class = AdDestroySerializer
+    permission_classes = [IsAuthenticated, IsAdminOrModerator | IsOwner, ]
